@@ -29,11 +29,16 @@ from tkinter import messagebox
 from subprocess import check_output, STDOUT, CalledProcessError
 import json
 from json import JSONDecodeError
-from os import getuid, system, _exit, path, makedirs
+from os import getuid, getgid, getgroups, execvp, system, _exit, path, makedirs, environ
 from webbrowser import open_new_tab
 import sys
 from datetime import datetime
 import textwrap
+import grp
+import pwd
+import shlex
+
+ZEROTIER_GROUP = "zerotier-one"
 
 BACKGROUND = "#d9d9d9"
 FOREGROUND = "black"
@@ -1266,7 +1271,67 @@ def setup_auth_token():
     _exit(0)
 
 
+def current_groups():
+    groups = set()
+    try:
+        groups.add(getgid())
+    except OSError:
+        pass
+    try:
+        groups.update(getgroups())
+    except OSError:
+        pass
+    return groups
+
+
+def ensure_zerotier_group():
+    """Re-exec the application inside the zerotier-one group.
+
+    Being added to the zerotier-one group only takes effect after a new
+    login, which is confusing when launching the app from the application
+    menu. Members of the group can switch to it without a password using
+    `sg`, so transparently re-exec ourselves to gain access to the
+    authtoken even in the current session.
+    """
+    if getuid() == 0:
+        return
+    if environ.get("ZEROTIER_GUI_REGROUPED") == "1":
+        return
+    try:
+        group = grp.getgrnam(ZEROTIER_GROUP)
+    except KeyError:
+        return
+    if group.gr_gid in current_groups():
+        return
+    try:
+        username = pwd.getpwuid(getuid()).pw_name
+    except KeyError:
+        return
+    if username not in group.gr_mem:
+        # Not a member yet; the first-run setup takes care of it.
+        return
+    script = path.abspath(sys.argv[0])
+    if not path.isfile(script):
+        return
+    environ["ZEROTIER_GUI_REGROUPED"] = "1"
+    args = [script] + sys.argv[1:]
+    command = "exec " + " ".join(shlex.quote(arg) for arg in args)
+    try:
+        execvp("sg", ["sg", ZEROTIER_GROUP, "-c", command])
+    except OSError:
+        pass
+
+
 if __name__ == "__main__":
+    # ensure sbin directories are in PATH (Debian places
+    # zerotier-cli in /usr/sbin, absent from the user PATH)
+    for sbin in ("/usr/sbin", "/sbin"):
+        if sbin not in environ.get("PATH", "").split(":"):
+            environ["PATH"] = sbin + ":" + environ.get("PATH", "")
+
+    # join the zerotier-one group if needed (without requiring re-login)
+    ensure_zerotier_group()
+
     # temporary window for popups
     tmp = tk.Tk()
     tmp.withdraw()

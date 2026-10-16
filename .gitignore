@@ -1,2 +1,15 @@
 *.deb
 *.rpm
+*.AppImage
+*.flatpak
+packaging/DEBIAN/
+packaging/usr/
+packaging/appimage/AppDir/
+repo/
+build-dir/
+.flatpak-builder/
+pyinstaller-build/
+dist/
+
+__pycache__/
+*.pyc

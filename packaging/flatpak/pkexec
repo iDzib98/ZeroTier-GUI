@@ -1,0 +1,8 @@
+#!/bin/sh
+# Forward pkexec calls to the host system for privilege escalation
+# (polkit authentication is handled by the host session).
+exec flatpak-spawn --host /bin/sh -c '
+    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    export PATH
+    exec pkexec "$@"
+' sh "$@"

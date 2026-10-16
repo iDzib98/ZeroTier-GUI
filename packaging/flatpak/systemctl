@@ -1,0 +1,7 @@
+#!/bin/sh
+# Forward systemctl calls (service status / start / stop) to the host system.
+exec flatpak-spawn --host /bin/sh -c '
+    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    export PATH
+    exec systemctl "$@"
+' sh "$@"

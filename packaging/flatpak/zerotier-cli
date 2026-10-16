@@ -1,0 +1,30 @@
+#!/bin/sh
+# Forward ZeroTier CLI calls to the host system, where zerotier-one runs and
+# where /var/lib/zerotier-one/authtoken.secret is readable.
+#
+# Being added to the zerotier-one group only takes effect after a new login.
+# Members can switch to the group without a password using `sg`, so we do
+# that on the host when needed, forwarding the original arguments safely.
+
+build_cmd() {
+    _cmd="$1"
+    shift
+    for _arg in "$@"; do
+        _quoted=$(printf "%s" "$_arg" | sed "s/'/'\\\\''/g")
+        _cmd="$_cmd '$_quoted'"
+    done
+    printf "exec %s" "$_cmd"
+}
+
+ZTC_CMD=$(build_cmd zerotier-cli "$@")
+
+exec flatpak-spawn --host /bin/sh -c '
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export PATH
+    ZTC_CMD="$1"
+    if getent group zerotier-one >/dev/null 2>&1 &&
+       getent group zerotier-one | grep -qw "$(id -un)"; then
+        exec sg zerotier-one -c "$ZTC_CMD"
+    fi
+    exec /bin/sh -c "$ZTC_CMD"
+' sh "$ZTC_CMD"

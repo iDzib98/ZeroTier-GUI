@@ -1,13 +1,12 @@
 [Desktop Entry]
-Encoding=UTF-8
-Exec=/usr/bin/zerotier-gui
-Icon=zerotier-gui
 Type=Application
-Terminal=false
-Comment=Linux front-end for ZeroTier
 Name=ZeroTier GUI
 GenericName=ZeroTier GUI
+Comment=Linux front-end for ZeroTier
+Exec=/usr/bin/zerotier-gui
+Icon=zerotier-gui
+Terminal=false
 StartupWMClass=zerotier-gui
 StartupNotify=false
-Categories=Utility;
-Version=1.4.0
+Categories=Network;
+Keywords=zerotier;vpn;network;

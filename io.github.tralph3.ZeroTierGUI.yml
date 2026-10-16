@@ -1,0 +1,85 @@
+app-id: io.github.tralph3.ZeroTierGUI
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: zerotier-gui
+
+finish-args:
+  # ZeroTier-GUI talks to the local zerotier-one service and the
+  # ZeroTier Central website.
+  - --share=network
+  # Tkinter renders through X11 (also works under Wayland via XWayland).
+  - --socket=x11
+  - --socket=wayland
+  # Host commands (zerotier-cli, systemctl, pkexec) are forwarded to the
+  # system through flatpak-spawn --host.
+  - --talk-name=org.freedesktop.Flatpak
+  # Needed to detect/read the ZeroTier authtoken during first-run setup.
+  - --filesystem=/var/lib/zerotier-one:ro
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.la'
+  - '*.a'
+
+modules:
+  # The freedesktop runtime ships Python but not the tkinter module
+  # (_tkinter). tkinter-standalone rebuilds the CPython 3.13 tkinter
+  # module against a locally built Tcl/Tk, as done by Scribus/Inkscape.
+  - name: tkinter
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} --no-build-isolation .
+    sources:
+      - type: git
+        url: https://github.com/iwalton3/tkinter-standalone
+        commit: 8e78e38ef0cceb44a3a0062e1c314a4ff3f981db
+    modules:
+      - name: tcl
+        buildsystem: autotools
+        subdir: unix
+        config-opts:
+          - --disable-zipfs
+        post-install:
+          - chmod 755 ${FLATPAK_DEST}/lib/libtcl*.so
+        cleanup:
+          - /bin
+          - /lib/pkgconfig
+          - /man
+        sources:
+          - type: archive
+            url: https://prdownloads.sourceforge.net/tcl/tcl9.0.2-src.tar.gz
+            sha256: e074c6a8d9ba2cddf914ba97b6677a552d7a52a3ca102924389a05ccb249b520
+      - name: tk
+        buildsystem: autotools
+        subdir: unix
+        config-opts:
+          - --disable-zipfs
+        post-install:
+          - chmod 755 ${FLATPAK_DEST}/lib/libtcl*tk*.so
+        cleanup:
+          - /bin
+          - /lib/pkgconfig
+          - /man
+        sources:
+          - type: archive
+            url: https://prdownloads.sourceforge.net/tcl/tk9.0.2-src.tar.gz
+            sha256: 76fb852b2f167592fe8b41aa6549ce4e486dbf3b259a269646600e3894517c76
+
+  - name: zerotier-gui
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 src/zerotier-gui ${FLATPAK_DEST}/share/zerotier-gui/zerotier-gui
+      - install -Dm755 packaging/flatpak/zerotier-gui.sh ${FLATPAK_DEST}/bin/zerotier-gui
+      - install -Dm755 packaging/flatpak/zerotier-cli ${FLATPAK_DEST}/bin/zerotier-cli
+      - install -Dm755 packaging/flatpak/systemctl ${FLATPAK_DEST}/bin/systemctl
+      - install -Dm755 packaging/flatpak/pkexec ${FLATPAK_DEST}/bin/pkexec
+      - install -Dm644 img/zerotier-gui.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/${FLATPAK_ID}.png
+      - install -Dm644 zerotier-gui.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - sed -i "s|Icon=zerotier-gui|Icon=${FLATPAK_ID}|" ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - sed -i "s|Exec=/usr/bin/zerotier-gui|Exec=zerotier-gui|" ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+    sources:
+      - type: dir
+        path: .

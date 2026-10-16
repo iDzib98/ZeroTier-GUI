@@ -4,6 +4,10 @@
 
 packageVersion=$(printf "1.4.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
 
+# Clean previous deb staging (keep other packaging helpers)
+
+rm -rf packaging/DEBIAN packaging/usr
+
 # Create file structure
 
 mkdir -pv packaging/DEBIAN
@@ -29,14 +33,15 @@ echo "Package: zerotier-gui
 Version: ${packageVersion}
 Architecture: all
 Maintainer: tralph3
-Depends: python3-tk,policykit-1,python3 (>=3.6)
+Depends: python3-tk, polkitd | policykit-1, python3 (>=3.6)
+Recommends: zerotier-one, systemd
 Priority: optional
 Homepage: https://github.com/tralph3/ZeroTier-GUI
 Description: A Linux front-end for ZeroTier" > packaging/DEBIAN/control
 
 # Build the package
 
-dpkg-deb --build packaging
+dpkg-deb --root-owner-group --build packaging
 
 # Rename the package
 

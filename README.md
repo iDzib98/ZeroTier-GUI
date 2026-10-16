@@ -30,6 +30,50 @@ You may need to mark it as executable first:
 
 The script will generate a `ZeroTier-GUI.deb` package in the root directory. Simply install it with `sudo apt install ./ZeroTier-GUI.deb`.
 
+The package depends on `polkitd | policykit-1` (modern Debian/Ubuntu/Deepin
+distributions ship `polkitd`, older ones `policykit-1`) and `python3-tk`.
+`zerotier-one` is only a recommendation, so the package stays installable on
+systems that use ZeroTier's own repository.
+
+## AppImage
+
+Builds a self-contained AppImage (Python and Tcl/Tk are bundled, so nothing
+extra needs to be installed). Docker is used for a reproducible build.
+
+    ./build-appimage.sh
+
+This generates `ZeroTier-GUI.AppImage` in the project root. Run it with:
+
+    chmod +x ZeroTier-GUI.AppImage
+    ./ZeroTier-GUI.AppImage
+
+## Flatpak
+
+Builds a Flatpak bundle. Requires `flatpak` and `flatpak-builder`.
+
+    ./build-flatpak.sh
+
+Then install and run it with:
+
+    flatpak install --user ./ZeroTier-GUI.flatpak
+    flatpak run io.github.tralph3.ZeroTierGUI
+
+The Flatpak runs the GUI sandboxed, but forwards `zerotier-cli`, `systemctl`
+and `pkexec` to the host through `flatpak-spawn`, so it manages the same
+`zerotier-one` service as a native install.
+
+# ZeroTier access
+
+ZeroTier-GUI talks to the running `zerotier-one` service through
+`zerotier-cli`, which reads `/var/lib/zerotier-one/authtoken.secret`. The user
+must belong to the `zerotier-one` group.
+
+The application offers to set this up on first run. Because a new group
+membership only becomes active after a new login (which is inconvenient when
+launching from the application menu), the app transparently re-executes itself
+inside the `zerotier-one` group using `sg` when needed, so no re-login is
+required. The Flatpak build does the same on the host side.
+
 # Building binaries with Docker
 
 ## Objective
