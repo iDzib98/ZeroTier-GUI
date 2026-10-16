@@ -28,6 +28,7 @@ COPY src/zerotier-gui /build/zerotier-gui
 COPY img/zerotier-gui.png /build/zerotier-gui.png
 COPY zerotier-gui.desktop /build/zerotier-gui.desktop
 COPY packaging/appimage/AppRun /build/AppRun
+COPY packaging/appimage/zerotier-cli /build/zerotier-cli
 
 RUN /opt/pyinstaller/bin/pyinstaller \
         --onefile \
@@ -41,7 +42,8 @@ RUN /opt/pyinstaller/bin/pyinstaller \
 RUN mkdir -p /build/AppDir/usr/bin \
         /build/AppDir/usr/share/applications \
         /build/AppDir/usr/share/icons/hicolor/256x256/apps \
-    && cp /build/dist/zerotier-gui /build/AppDir/usr/bin/zerotier-gui \
+    && install -m 0755 /build/dist/zerotier-gui /build/AppDir/usr/bin/zerotier-gui \
+    && install -m 0755 /build/zerotier-cli /build/AppDir/usr/bin/zerotier-cli \
     && install -m 0755 /build/AppRun /build/AppDir/AppRun \
     && cp /build/zerotier-gui.png /build/AppDir/zerotier-gui.png \
     && cp /build/zerotier-gui.png /build/AppDir/usr/share/icons/hicolor/256x256/apps/zerotier-gui.png \

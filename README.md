@@ -5,6 +5,10 @@
 
 **A Linux front-end for ZeroTier**
 
+The interface detects the desktop's light or dark appearance preference at
+launch and uses a responsive layout inspired by the current ZeroTier Central
+dashboard, with rounded cards and network status chips.
+
 ### Manage Networks
 <img src="img/managenetworks1.png " width="1000">
 <img src="img/managenetworks2.png " width="1000">

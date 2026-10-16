@@ -1,0 +1,23 @@
+#!/bin/sh
+# Run the host's ZeroTier CLI, switching to its group when the user is already
+# a member but the current desktop session has not picked up that group yet.
+
+build_command() {
+    command="exec zerotier-cli"
+    for argument in "$@"; do
+        quoted=$(printf "%s" "$argument" | sed "s/'/'\\\\''/g")
+        command="$command '$quoted'"
+    done
+    printf "%s" "$command"
+}
+
+host_command=$(build_command "$@")
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
+if getent group zerotier-one >/dev/null 2>&1 &&
+    getent group zerotier-one | grep -qw "$(id -un)"; then
+    exec sg zerotier-one -c "$host_command"
+fi
+
+exec /bin/sh -c "$host_command"

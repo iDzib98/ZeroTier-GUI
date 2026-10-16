@@ -26,10 +26,26 @@
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from subprocess import check_output, STDOUT, CalledProcessError
+from subprocess import (
+    check_output as subprocess_check_output,
+    run as subprocess_run,
+    STDOUT,
+    CalledProcessError,
+    TimeoutExpired,
+)
 import json
 from json import JSONDecodeError
-from os import getuid, getgid, getgroups, execvp, system, _exit, path, makedirs, environ
+from os import (
+    getuid,
+    getgid,
+    getgroups,
+    execvp,
+    system as os_system,
+    _exit,
+    path,
+    makedirs,
+    environ,
+)
 from webbrowser import open_new_tab
 import sys
 from datetime import datetime
@@ -37,13 +53,314 @@ import textwrap
 import grp
 import pwd
 import shlex
+import math
+from tkinter import font as tkfont
 
 ZEROTIER_GROUP = "zerotier-one"
 
-BACKGROUND = "#d9d9d9"
-FOREGROUND = "black"
-BUTTON_BACKGROUND = "#ffb253"
-BUTTON_ACTIVE_BACKGROUND = "#ffbf71"
+
+def host_command_environment():
+    """Keep PyInstaller's bundled libraries away from host system tools."""
+    environment = environ.copy()
+    if getattr(sys, "frozen", False):
+        original_library_path = environment.pop("LD_LIBRARY_PATH_ORIG", None)
+        if original_library_path:
+            environment["LD_LIBRARY_PATH"] = original_library_path
+        else:
+            environment.pop("LD_LIBRARY_PATH", None)
+    return environment
+
+
+def check_output(*args, **kwargs):
+    if getattr(sys, "frozen", False):
+        kwargs["env"] = host_command_environment()
+    return subprocess_check_output(*args, **kwargs)
+
+
+def system(command):
+    if getattr(sys, "frozen", False):
+        return subprocess_run(
+            command,
+            shell=True,
+            env=host_command_environment(),
+        ).returncode
+    return os_system(command)
+
+THEMES = {
+    "light": {
+        "background": "#f4f7fb",
+        "surface": "#ffffff",
+        "surface_alt": "#f7f9fc",
+        "border": "#e3e8f0",
+        "foreground": "#182230",
+        "muted": "#697586",
+        "accent": "#1769d2",
+        "accent_hover": "#0f58b8",
+        "accent_soft": "#eaf2ff",
+        "success": "#16845b",
+        "success_soft": "#e8f6ef",
+        "danger": "#c43d4b",
+        "danger_soft": "#fff0f0",
+        "row_alt": "#f7f9fc",
+        "selection": "#dceaff",
+    },
+    "dark": {
+        "background": "#111722",
+        "surface": "#192230",
+        "surface_alt": "#202b3b",
+        "border": "#303d50",
+        "foreground": "#e8edf5",
+        "muted": "#9aa9bc",
+        "accent": "#68a7ff",
+        "accent_hover": "#8bbaff",
+        "accent_soft": "#253a57",
+        "success": "#61c99b",
+        "success_soft": "#1e3a33",
+        "danger": "#ff8585",
+        "danger_soft": "#482b34",
+        "row_alt": "#1d2837",
+        "selection": "#29456b",
+    },
+}
+
+COLORS = {}
+BACKGROUND = "#f4f7fb"
+FOREGROUND = "#182230"
+BUTTON_BACKGROUND = "#1769d2"
+BUTTON_ACTIVE_BACKGROUND = "#0f58b8"
+
+
+def detect_system_theme():
+    """Detect the desktop's preferred color scheme without extra dependencies."""
+    gtk_theme = environ.get("GTK_THEME", "").lower()
+    if "dark" in gtk_theme:
+        return "dark"
+
+    def desktop_command(command):
+        if environ.get("FLATPAK_ID"):
+            command = ["flatpak-spawn", "--host"] + command
+        return check_output(
+            command,
+            stderr=STDOUT,
+            timeout=2,
+            universal_newlines=True,
+        ).strip().strip("'\"").lower()
+
+    # Deepin 23/25 uses its own schemas for the active theme rather than
+    # org.gnome.desktop.interface.
+    for schema, key in (
+        ("com.deepin.dde.appearance", "gtk-theme"),
+        ("com.deepin.xsettings", "theme-name"),
+    ):
+        try:
+            value = desktop_command(["gsettings", "get", schema, key])
+            if value:
+                return "dark" if "dark" in value else "light"
+        except (OSError, CalledProcessError, TimeoutExpired):
+            pass
+
+    # KDE Plasma stores the selected scheme in kdeglobals.
+    if environ.get("FLATPAK_ID"):
+        for reader in ("kreadconfig6", "kreadconfig5"):
+            try:
+                value = desktop_command(
+                    [reader, "--file", "kdeglobals", "--group", "General", "--key", "ColorScheme"]
+                )
+                if value:
+                    return "dark" if "dark" in value else "light"
+            except (OSError, CalledProcessError, TimeoutExpired):
+                pass
+    else:
+        kdeglobals = path.expanduser("~/.config/kdeglobals")
+        try:
+            with open(kdeglobals, "r", encoding="utf-8") as settings:
+                in_general = False
+                for line in settings:
+                    line = line.strip()
+                    if line.startswith("["):
+                        in_general = line.lower() == "[general]"
+                    elif in_general and line.lower().startswith("colorscheme="):
+                        if "dark" in line.split("=", 1)[1].lower():
+                            return "dark"
+                        return "light"
+        except OSError:
+            pass
+
+    # GNOME, Cinnamon, and GTK-based desktops expose this preference through
+    # gsettings. Older desktops may only provide a theme name.
+    for key in ("color-scheme", "gtk-theme"):
+        try:
+            value = desktop_command(
+                ["gsettings", "get", "org.gnome.desktop.interface", key]
+            )
+            if "dark" in value or value == "prefer-dark":
+                return "dark"
+            if key == "color-scheme" and value in ("prefer-light", "default"):
+                continue
+            if key == "gtk-theme" and value:
+                return "light"
+        except (OSError, CalledProcessError, TimeoutExpired):
+            pass
+
+    # Some lightweight desktops export COLORFGBG (terminal-style convention).
+    color_fgbg = environ.get("COLORFGBG", "").rsplit(";", 1)[-1]
+    if color_fgbg.isdigit() and int(color_fgbg) < 7:
+        return "dark"
+    return "light"
+
+
+def set_theme(theme_name):
+    global COLORS, BACKGROUND, FOREGROUND
+    global BUTTON_BACKGROUND, BUTTON_ACTIVE_BACKGROUND
+    COLORS = THEMES[theme_name]
+    BACKGROUND = COLORS["background"]
+    FOREGROUND = COLORS["foreground"]
+    BUTTON_BACKGROUND = COLORS["accent"]
+    BUTTON_ACTIVE_BACKGROUND = COLORS["accent_hover"]
+
+
+def rounded_rectangle_points(x1, y1, x2, y2, radius, steps=6):
+    radius = max(0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
+    points = []
+    corners = (
+        (x2 - radius, y1 + radius, -90, 0),
+        (x2 - radius, y2 - radius, 0, 90),
+        (x1 + radius, y2 - radius, 90, 180),
+        (x1 + radius, y1 + radius, 180, 270),
+    )
+    for center_x, center_y, start, end in corners:
+        for step in range(steps + 1):
+            angle = math.radians(start + (end - start) * step / steps)
+            points.extend(
+                (
+                    center_x + radius * math.cos(angle),
+                    center_y + radius * math.sin(angle),
+                )
+            )
+    return points
+
+
+class RoundedButton(tk.Canvas):
+    """A small Canvas button so controls keep rounded corners in Tk themes."""
+
+    def __init__(
+        self,
+        master,
+        text,
+        command,
+        bg,
+        fg,
+        hover_bg,
+        font=None,
+        padx=14,
+        pady=8,
+        radius=9,
+    ):
+        self.text = text
+        self.command = command
+        self.fill = bg
+        self.hover_fill = hover_bg
+        self.text_color = fg
+        self.radius = radius
+        self.button_font = tkfont.Font(
+            root=master,
+            font=font or ("TkDefaultFont", 9, "bold"),
+        )
+        width = self.button_font.measure(text) + padx * 2
+        height = self.button_font.metrics("linespace") + pady * 2
+        self.padding_x = padx
+        self.padding_y = pady
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            bg=master.cget("bg"),
+            highlightthickness=0,
+            bd=0,
+            takefocus=True,
+            cursor="hand2",
+        )
+        self.shape = self.create_polygon(
+            rounded_rectangle_points(1, 1, width - 1, height - 1, radius),
+            fill=self.fill,
+            outline="",
+        )
+        self.label = self.create_text(
+            width / 2,
+            height / 2,
+            text=text,
+            fill=self.text_color,
+            font=self.button_font,
+        )
+        self.bind("<Enter>", lambda _event: self._set_fill(self.hover_fill))
+        self.bind("<Leave>", lambda _event: self._set_fill(self.fill))
+        self.bind("<Button-1>", self._click)
+        self.bind("<Return>", self._click)
+        self.bind("<space>", self._click)
+        self.bind("<Configure>", self._resize)
+
+    def _set_fill(self, color):
+        self.itemconfigure(self.shape, fill=color)
+
+    def _resize(self, event):
+        self.coords(
+            self.shape,
+            *rounded_rectangle_points(
+                1, 1, event.width - 1, event.height - 1, self.radius
+            ),
+        )
+        self.coords(self.label, event.width / 2, event.height / 2)
+
+    def _click(self, _event=None):
+        if self.command:
+            return self.command()
+
+    def invoke(self):
+        return self._click()
+
+
+class RoundedPill(tk.Canvas):
+    def __init__(self, master, text, fill, foreground, font=None):
+        self.text = text
+        self.fill = fill
+        self.foreground = foreground
+        self.pill_font = tkfont.Font(
+            root=master,
+            font=font or ("TkDefaultFont", 9, "bold"),
+        )
+        self.padding_x = 11
+        self.height = self.pill_font.metrics("linespace") + 12
+        width = self.pill_font.measure(text) + self.padding_x * 2
+        super().__init__(
+            master,
+            width=width,
+            height=self.height,
+            bg=master.cget("bg"),
+            highlightthickness=0,
+            bd=0,
+        )
+        self._draw(width)
+
+    def _draw(self, width):
+        self.delete("all")
+        self.configure(width=width)
+        self.create_polygon(
+            rounded_rectangle_points(1, 1, width - 1, self.height - 1, self.height / 2),
+            fill=self.fill,
+            outline="",
+        )
+        self.create_text(
+            width / 2,
+            self.height / 2,
+            text=self.text,
+            fill=self.foreground,
+            font=self.pill_font,
+        )
+
+    def set_text(self, text):
+        self.text = text
+        width = self.pill_font.measure(text) + self.padding_x * 2
+        self._draw(width)
 
 HISTORY_FILE_DIRECTORY = path.expanduser("~/.local/share/zerotier-gui")
 HISTORY_FILE_NAME = "network_history.json"
@@ -54,122 +371,532 @@ class MainWindow:
         self.load_network_history()
 
         self.window = tk.Tk(className="zerotier-gui")
-        self.window.title("ZeroTier-GUI")
-        self.window.resizable(width=False, height=False)
+        self.window.title("ZeroTier Control Center")
+        self.window.geometry("1040x700")
+        self.window.minsize(780, 560)
+        self.window.resizable(width=True, height=True)
+        self.window.configure(bg=BACKGROUND)
 
-        # layout setup
-        self.topFrame = tk.Frame(self.window, padx=20, pady=10, bg=BACKGROUND)
-        self.topBottomFrame = tk.Frame(self.window, padx=20, bg=BACKGROUND)
-        self.middleFrame = tk.Frame(self.window, padx=20, bg=BACKGROUND)
-        self.bottomFrame = tk.Frame(
-            self.window, padx=20, pady=10, bg=BACKGROUND
+        self.style = ttk.Style(self.window)
+        if "clam" in self.style.theme_names():
+            self.style.theme_use("clam")
+        self.configure_styles()
+
+        page = tk.Frame(self.window, bg=BACKGROUND, padx=30, pady=26)
+        page.pack(fill="both", expand=True)
+        self.page = page
+
+        header = tk.Frame(page, bg=BACKGROUND)
+        header.pack(fill="x", pady=(0, 22))
+        self.header = header
+        brand_mark = tk.Canvas(
+            header,
+            width=46,
+            height=44,
+            bg=BACKGROUND,
+            highlightthickness=0,
+            bd=0,
         )
-
-        # widgets
+        brand_mark.create_polygon(
+            rounded_rectangle_points(1, 1, 45, 43, 10),
+            fill=COLORS["accent"],
+            outline="",
+        )
+        brand_mark.create_text(
+            23,
+            22,
+            text="ZT",
+            fill=(
+                "#ffffff"
+                if COLORS["accent"] == THEMES["light"]["accent"]
+                else "#111722"
+            ),
+            font=("TkDefaultFont", 12, "bold"),
+        )
+        brand_mark.pack(side="left", padx=(0, 14))
+        title_block = tk.Frame(header, bg=BACKGROUND)
+        title_block.pack(side="left", anchor="center")
         self.networkLabel = tk.Label(
-            self.topFrame,
-            text="Joined Networks:",
-            font=40,
+            title_block,
+            text="Networks",
             bg=BACKGROUND,
             fg=FOREGROUND,
+            font=("TkDefaultFont", 21, "bold"),
         )
-        self.refreshButton = self.formatted_buttons(
-            self.topFrame,
-            text="Refresh Networks",
-            command=self.refresh_networks,
-        )
-        self.aboutButton = self.formatted_buttons(
-            self.topFrame, text="About", command=self.about_window
-        )
-        self.peersButton = self.formatted_buttons(
-            self.topFrame, text="Show Peers", command=self.see_peers
-        )
-        self.joinButton = self.formatted_buttons(
-            self.topFrame,
-            text="Join Network",
-            command=self.create_join_network_window,
-        )
+        self.networkLabel.pack(anchor="w")
+        tk.Label(
+            title_block,
+            text="Manage your ZeroTier connections",
+            bg=BACKGROUND,
+            fg=COLORS["muted"],
+            font=("TkDefaultFont", 10),
+        ).pack(anchor="w", pady=(2, 0))
 
-        self.networkListScrollbar = tk.Scrollbar(
-            self.middleFrame, bd=2, bg=BACKGROUND
+        self.statusCard, status_block = self.create_rounded_card(
+            header, width=310, height=60, radius=13
         )
-
-        self.networkList = TreeView(
-            self.middleFrame, "Network ID", "Name", "Status"
+        self.statusCard.pack(side="right", anchor="center")
+        status_block.configure(padx=8, pady=4)
+        self.serviceStatusLabel = tk.Label(
+            status_block,
+            text="Checking service…",
+            font=("TkDefaultFont", 9, "bold"),
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
         )
-        self.networkList.column("Network ID", width=40)
-        self.networkList.column("Status", width=40)
-
-        self.networkList.bind("<Double-Button-1>", self.call_see_network_info)
-
-        self.leaveButton = self.formatted_buttons(
-            self.bottomFrame,
-            text="Leave Network",
-            bg=BUTTON_BACKGROUND,
-            activebackground=BUTTON_ACTIVE_BACKGROUND,
-            command=self.leave_network,
-        )
-        self.ztCentralButton = self.formatted_buttons(
-            self.bottomFrame,
-            text="ZeroTier Central",
-            bg=BUTTON_BACKGROUND,
-            activebackground=BUTTON_ACTIVE_BACKGROUND,
-            command=self.zt_central,
-        )
-        self.toggleConnectionButton = self.formatted_buttons(
-            self.bottomFrame,
-            text="Disconnect/Connect Interface",
-            bg=BUTTON_BACKGROUND,
-            activebackground=BUTTON_ACTIVE_BACKGROUND,
-            command=self.toggle_interface_connection,
-        )
+        self.serviceStatusLabel.pack(side="left", padx=(0, 10))
         self.toggleServiceButton = self.formatted_buttons(
-            self.bottomFrame,
-            text="Toggle ZT Service",
-            bg=BUTTON_BACKGROUND,
-            activebackground=BUTTON_ACTIVE_BACKGROUND,
+            status_block,
+            text="Toggle service",
+            bg=COLORS["surface_alt"],
+            fg=FOREGROUND,
+            activebackground=COLORS["border"],
             command=self.toggle_service,
         )
-        self.serviceStatusLabel = tk.Label(
-            self.bottomFrame, font=40, bg=BACKGROUND, fg=FOREGROUND
+        self.toggleServiceButton.pack(side="left")
+
+        toolbar = tk.Frame(page, bg=BACKGROUND)
+        toolbar.pack(fill="x", pady=(0, 16))
+        self.toolbar = toolbar
+        toolbar.grid_columnconfigure(0, weight=1)
+        toolbar_left = tk.Frame(toolbar, bg=BACKGROUND)
+        toolbar_right = tk.Frame(toolbar, bg=BACKGROUND)
+        toolbar_left.grid(row=0, column=0, sticky="w")
+        toolbar_right.grid(row=0, column=1, sticky="e")
+        self.toolbar_left = toolbar_left
+        self.toolbar_right = toolbar_right
+        self.joinButton = self.formatted_buttons(
+            toolbar_left,
+            text="＋  Join network",
+            command=self.create_join_network_window,
         )
+        self.joinButton.pack(side="left")
+        self.refreshButton = self.formatted_buttons(
+            toolbar_left,
+            text="Refresh",
+            bg=COLORS["surface"],
+            fg=FOREGROUND,
+            activebackground=COLORS["surface_alt"],
+            command=self.refresh_networks,
+        )
+        self.refreshButton.pack(side="left", padx=(10, 0))
+        self.peersButton = self.formatted_buttons(
+            toolbar_left,
+            text="Peers",
+            bg=COLORS["surface"],
+            fg=FOREGROUND,
+            activebackground=COLORS["surface_alt"],
+            command=self.see_peers,
+        )
+        self.peersButton.pack(side="left", padx=(10, 0))
+        self.ztCentralButton = self.formatted_buttons(
+            toolbar_right,
+            text="Open Central ↗",
+            bg=COLORS["surface"],
+            fg=FOREGROUND,
+            activebackground=COLORS["surface_alt"],
+            command=self.zt_central,
+        )
+        self.ztCentralButton.pack(side="right")
+        self.aboutButton = self.formatted_buttons(
+            toolbar_right,
+            text="About",
+            bg=COLORS["surface"],
+            fg=FOREGROUND,
+            activebackground=COLORS["surface_alt"],
+            command=self.about_window,
+        )
+        self.aboutButton.pack(side="left", padx=(0, 10))
+
+        network_card, network_content = self.create_rounded_card(
+            page, height=340, radius=17
+        )
+        network_card.pack(fill="both", expand=True)
+        self.networkCard = network_card
+        card_header = tk.Frame(
+            network_content, bg=COLORS["surface"], padx=8, pady=10
+        )
+        card_header.pack(fill="x")
+        card_title_block = tk.Frame(card_header, bg=COLORS["surface"])
+        card_title_block.pack(side="left")
+        tk.Label(
+            card_title_block,
+            text="Your networks",
+            bg=COLORS["surface"],
+            fg=FOREGROUND,
+            font=("TkDefaultFont", 13, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            card_title_block,
+            text="Joined virtual networks and their connection state",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("TkDefaultFont", 9),
+        ).pack(anchor="w", pady=(3, 0))
+        self.networkCountLabel = RoundedPill(
+            card_header,
+            text="0 networks",
+            fill=COLORS["accent_soft"],
+            foreground=COLORS["accent"],
+        )
+        self.networkCountLabel.pack(side="right")
+
+        table_frame = tk.Frame(network_content, bg=COLORS["surface"], padx=8)
+        table_frame.pack(fill="both", expand=True, pady=(0, 8))
+        self.networkListScrollbar = tk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            bg=COLORS["surface_alt"],
+            troughcolor=COLORS["surface"],
+            activebackground=COLORS["accent"],
+            highlightthickness=0,
+            bd=0,
+            width=10,
+            relief=tk.FLAT,
+        )
+        self.networkList = TreeView(
+            table_frame, "Network ID", "Name", "Status"
+        )
+        self.networkList.configure(
+            show="headings",
+            height=12,
+            selectmode="browse",
+        )
+        self.networkList.column(
+            "Network ID", width=230, minwidth=170, stretch=True, anchor="w"
+        )
+        self.networkList.column(
+            "Name", width=430, minwidth=180, stretch=True, anchor="w"
+        )
+        self.networkList.column(
+            "Status", width=150, minwidth=120, stretch=False, anchor="w"
+        )
+        self.networkList.pack(side="left", fill="both", expand=True)
+        self.networkListScrollbar.pack(side="right", fill="y")
+        self.networkList.bind("<Double-Button-1>", self.call_see_network_info)
+        self.networkList.bind("<<TreeviewSelect>>", self.update_selected_network)
+        self.networkList.bind(
+            "<<TreeviewSelect>>",
+            lambda _event: self.window.after_idle(self.position_status_badges),
+            add="+",
+        )
+        self.networkList.bind(
+            "<Configure>",
+            lambda _event: self.window.after_idle(self.position_status_badges),
+            add="+",
+        )
+
+        self.status_badges = {}
+        self.networkList.config(yscrollcommand=self.set_network_scroll)
+        self.networkListScrollbar.config(command=self.scroll_networks)
+
+        footer, footer_content = self.create_rounded_card(
+            page, width=400, height=86, radius=14
+        )
+        footer.pack(fill="x", pady=(14, 0))
+        self.footer = footer
+        footer_content.configure(padx=8, pady=7)
+        footer_content.grid_columnconfigure(0, weight=1)
+        self.selectionLabel = tk.Label(
+            footer_content,
+            text="Select a network to view details and actions",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("TkDefaultFont", 9),
+            anchor="w",
+        )
+        self.selectionLabel.grid(row=0, column=0, sticky="w")
+        footer_actions = tk.Frame(footer_content, bg=COLORS["surface"])
+        footer_actions.grid(row=0, column=1, sticky="e")
+        self.footer_content = footer_content
+        self.footer_actions = footer_actions
         self.infoButton = self.formatted_buttons(
-            self.bottomFrame,
-            text="Network Info",
-            bg=BUTTON_BACKGROUND,
-            activebackground=BUTTON_ACTIVE_BACKGROUND,
+            footer_actions,
+            text="Network info",
+            bg=COLORS["surface_alt"],
+            fg=FOREGROUND,
+            activebackground=COLORS["border"],
             command=self.see_network_info,
         )
+        self.infoButton.grid(row=0, column=2, padx=(9, 0))
+        self.toggleConnectionButton = self.formatted_buttons(
+            footer_actions,
+            text="Toggle interface",
+            bg=COLORS["surface_alt"],
+            fg=FOREGROUND,
+            activebackground=COLORS["border"],
+            command=self.toggle_interface_connection,
+        )
+        self.toggleConnectionButton.grid(row=0, column=1, padx=(9, 0))
+        self.leaveButton = self.formatted_buttons(
+            footer_actions,
+            text="Leave network",
+            bg=COLORS["danger_soft"],
+            fg=COLORS["danger"],
+            activebackground=COLORS["danger_soft"],
+            command=self.leave_network,
+        )
+        self.leaveButton.grid(row=0, column=0)
 
-        # pack widgets
-        self.networkLabel.pack(side="left", anchor="sw")
-        self.refreshButton.pack(side="right", anchor="se")
-        self.aboutButton.pack(side="right", anchor="sw")
-        self.peersButton.pack(side="right", anchor="sw")
-        self.joinButton.pack(side="right", anchor="se")
+        self.networkList.tag_configure("odd", background=COLORS["surface"])
+        self.networkList.tag_configure("even", background=COLORS["row_alt"])
+        self.networkList.tag_configure("disabled", foreground=COLORS["danger"])
 
-        self.networkListScrollbar.pack(side="right", fill="both")
-        self.networkList.pack(side="bottom", fill="x")
-
-        self.leaveButton.pack(side="left", fill="x")
-        self.toggleConnectionButton.pack(side="left", fill="x")
-        self.infoButton.pack(side="right", fill="x")
-        self.ztCentralButton.pack(side="right", fill="x")
-        self.toggleServiceButton.pack(side="right", fill="x")
-        self.serviceStatusLabel.pack(side="right", fill="x", padx=(100, 0))
-
-        # frames
-        self.topFrame.pack(side="top", fill="x")
-        self.topBottomFrame.pack(side="top", fill="x")
-        self.middleFrame.pack(side="top", fill="x")
-        self.bottomFrame.pack(side="top", fill="x")
-
-        # extra configuration
+        # Populate data after the complete layout is in place.
         self.refresh_networks()
         self.update_service_label()
+        self.window.bind("<Configure>", self.update_responsive_layout, add="+")
+        self.window.after_idle(self.update_responsive_layout)
 
-        self.networkList.config(yscrollcommand=self.networkListScrollbar.set)
-        self.networkListScrollbar.config(command=self.networkList.yview)
+    def configure_styles(self):
+        self.style.configure(
+            "Treeview",
+            background=COLORS["surface"],
+            fieldbackground=COLORS["surface"],
+            foreground=FOREGROUND,
+            rowheight=42,
+            borderwidth=0,
+            relief="flat",
+            lightcolor=COLORS["surface"],
+            darkcolor=COLORS["surface"],
+            font=("TkDefaultFont", 10),
+        )
+        self.style.layout(
+            "Treeview", [("Treeview.treearea", {"sticky": "nswe"})]
+        )
+        self.style.configure(
+            "Treeview.Heading",
+            background=COLORS["surface_alt"],
+            foreground=COLORS["muted"],
+            relief="flat",
+            borderwidth=0,
+            padding=(12, 11),
+            font=("TkDefaultFont", 9, "bold"),
+        )
+        self.style.map(
+            "Treeview",
+            background=[("selected", COLORS["selection"])],
+            foreground=[("selected", FOREGROUND)],
+        )
+        self.style.map(
+            "Treeview.Heading",
+            background=[("active", COLORS["surface_alt"])],
+        )
+
+    def create_rounded_card(self, parent, width=400, height=120, radius=15):
+        canvas = tk.Canvas(
+            parent,
+            width=width,
+            height=height,
+            bg=parent.cget("bg"),
+            highlightthickness=0,
+            bd=0,
+        )
+        surface = tk.Frame(canvas, bg=COLORS["surface"])
+        shape = canvas.create_polygon(
+            rounded_rectangle_points(1, 1, width - 1, height - 1, radius),
+            fill=COLORS["surface"],
+            outline=COLORS["border"],
+            width=1,
+        )
+        content = canvas.create_window(
+            radius,
+            radius,
+            anchor="nw",
+            window=surface,
+            width=width - 2 * radius,
+            height=height - 2 * radius,
+        )
+
+        def resize(event):
+            card_radius = min(radius, event.width / 2, event.height / 2)
+            canvas.coords(
+                shape,
+                *rounded_rectangle_points(
+                    1,
+                    1,
+                    event.width - 1,
+                    event.height - 1,
+                    card_radius,
+                ),
+            )
+            canvas.itemconfigure(
+                content,
+                width=max(1, event.width - 2 * card_radius),
+                height=max(1, event.height - 2 * card_radius),
+            )
+
+        canvas.bind("<Configure>", resize)
+        return canvas, surface
+
+    def update_responsive_layout(self, _event=None):
+        width = self.window.winfo_width()
+        height = self.window.winfo_height()
+        compact = width < 920
+        short = height < 650
+
+        self.page.configure(
+            padx=18 if compact else 30,
+            pady=14 if short else 26,
+        )
+        self.header.pack_configure(pady=(0, 12 if short else 22))
+        self.toolbar.pack_configure(pady=(0, 8 if short else 16))
+        self.footer.pack_configure(pady=(8 if short else 14, 0))
+        self.footer.configure(height=108 if compact else 86)
+        self.networkCard.configure(height=220 if short else 340)
+        self.networkList.configure(height=3 if short else 12)
+
+        if width < 900:
+            self.toolbar_right.grid_configure(
+                row=1, column=0, columnspan=2, sticky="e", pady=(9, 0)
+            )
+        else:
+            self.toolbar_right.grid_configure(
+                row=0, column=1, columnspan=1, sticky="e", pady=0
+            )
+
+        if width < 920:
+            self.selectionLabel.grid_configure(
+                row=0, column=0, columnspan=2, sticky="w"
+            )
+            self.footer_actions.grid_configure(
+                row=1, column=0, columnspan=2, sticky="e", pady=(9, 0)
+            )
+        else:
+            self.selectionLabel.grid_configure(
+                row=0, column=0, columnspan=1, sticky="w"
+            )
+            self.footer_actions.grid_configure(
+                row=0, column=1, columnspan=1, sticky="e", pady=0
+            )
+
+        self.window.after_idle(self.position_status_badges)
+
+    def set_network_scroll(self, first, last):
+        self.networkListScrollbar.set(first, last)
+        if float(first) <= 0 and float(last) >= 1:
+            self.networkListScrollbar.pack_forget()
+        elif not self.networkListScrollbar.winfo_manager():
+            self.networkListScrollbar.pack(side="right", fill="y")
+        self.window.after_idle(self.position_status_badges)
+
+    def scroll_networks(self, *args):
+        self.networkList.yview(*args)
+        self.window.after_idle(self.position_status_badges)
+
+    def status_badge_style(self, status):
+        normalized = status.upper().replace(" ", "_")
+        if normalized in ("OK", "OKAY"):
+            return "Okay", COLORS["success_soft"], COLORS["success"], "✓"
+        if "REQUESTING" in normalized or "AUTHORIZ" in normalized:
+            return "Authorizing", COLORS["accent_soft"], COLORS["accent"], "…"
+        if normalized == "INTERFACE_DOWN":
+            return "Interface down", COLORS["danger_soft"], COLORS["danger"], "!"
+        if "ACCESS_DENIED" in normalized or "NOT_FOUND" in normalized:
+            return "Denied", COLORS["danger_soft"], COLORS["danger"], "!"
+        return (
+            status.replace("_", " ").title(),
+            COLORS["surface_alt"],
+            COLORS["muted"],
+            "•",
+        )
+
+    def position_status_badges(self):
+        if not hasattr(self, "status_badges") or not self.networkList.winfo_exists():
+            return
+        for item, badge in tuple(getattr(self, "status_badge_widgets", {}).items()):
+            if item not in self.status_badges:
+                badge.destroy()
+                del self.status_badge_widgets[item]
+
+        if not hasattr(self, "status_badge_widgets"):
+            self.status_badge_widgets = {}
+        selected = set(self.networkList.selection())
+        for item, status in self.status_badges.items():
+            cell = self.networkList.bbox(item, "Status")
+            badge = self.status_badge_widgets.get(item)
+            if not cell:
+                if badge:
+                    badge.place_forget()
+                continue
+
+            label, fill, foreground, symbol = self.status_badge_style(status)
+            text_font = ("TkDefaultFont", 9, "bold")
+            measure = tkfont.Font(root=self.window, font=text_font)
+            width = measure.measure(label) + 39
+            height = 26
+            row_background = (
+                COLORS["selection"]
+                if item in selected
+                else COLORS["row_alt"]
+                if "even" in self.networkList.item(item, "tags")
+                else COLORS["surface"]
+            )
+            if not badge:
+                badge = tk.Canvas(
+                    self.networkList,
+                    width=width,
+                    height=height,
+                    bg=row_background,
+                    highlightthickness=0,
+                    bd=0,
+                    cursor="hand2",
+                )
+                badge.bind(
+                    "<Button-1>",
+                    lambda _event, row=item: self.select_network_row(row),
+                )
+                self.status_badge_widgets[item] = badge
+
+            badge.configure(width=width, height=height, bg=row_background)
+            badge.delete("all")
+            badge.create_polygon(
+                rounded_rectangle_points(1, 1, width - 1, height - 1, 13),
+                fill=fill,
+                outline="",
+            )
+            badge.create_oval(7, 7, 19, 19, fill=foreground, outline="")
+            badge.create_text(
+                13,
+                13,
+                text=symbol,
+                fill=fill,
+                font=("TkDefaultFont", 7, "bold"),
+            )
+            badge.create_text(
+                25,
+                13,
+                text=label,
+                anchor="w",
+                fill=foreground,
+                font=text_font,
+            )
+            x, y, cell_width, cell_height = cell
+            badge.place(
+                x=x + max(0, (cell_width - width) // 2),
+                y=y + (cell_height - height) // 2,
+            )
+
+    def select_network_row(self, item):
+        self.networkList.selection_set(item)
+        self.networkList.focus(item)
+        self.networkList.see(item)
+        self.update_selected_network()
+
+    def update_selected_network(self, _event=None):
+        selected = self.networkList.focus()
+        if not selected:
+            self.selectionLabel.configure(
+                text="Select a network to view details and actions",
+                fg=COLORS["muted"],
+            )
+            return
+        values = self.networkList.item(selected, "values")
+        if values:
+            self.selectionLabel.configure(
+                text=f"{values[1]}  ·  {values[0]}",
+                fg=FOREGROUND,
+            )
 
     def load_network_history(self):
         history_file_path = path.join(
@@ -207,10 +934,15 @@ class MainWindow:
 
     def update_service_label(self):
         state = self.get_service_status()
-        self.serviceStatusLabel.configure(text=f"Service Status: {state} | ")
+        is_active = state == "active"
+        label = "Service running" if is_active else f"Service {state}"
+        self.serviceStatusLabel.configure(
+            text=f"●  {label}",
+            fg=COLORS["success"] if is_active else COLORS["muted"],
+        )
 
     def zt_central(self):
-        open_new_tab("https://my.zerotier.com")
+        open_new_tab("https://central.zerotier.com/")
 
     def call_see_network_info(self, event):
         self.see_network_info()
@@ -282,6 +1014,7 @@ class MainWindow:
 
     def refresh_networks(self):
         self.networkList.delete(*self.networkList.get_children())
+        self.status_badges.clear()
         networks = []
         # outputs info of networks in json format
         networkData = self.get_networks_info()
@@ -309,10 +1042,18 @@ class MainWindow:
         ) in networks:
             if not networkName:
                 networkName = "Unknown Name"
-            self.networkList.insert(
-                (networkId, networkName, networkStatus), isDown
+            item = self.networkList.insert(
+                (networkId, networkName, ""), isDown
+            )
+            self.status_badges[item] = (
+                "INTERFACE_DOWN" if isDown else networkStatus
             )
 
+        network_count = len(networks)
+        noun = "network" if network_count == 1 else "networks"
+        self.networkCountLabel.set_text(f"{network_count} {noun}")
+        self.update_selected_network()
+        self.window.after_idle(self.position_status_badges)
         self.update_network_history_names()
 
     def update_network_history_names(self):
@@ -345,6 +1086,7 @@ class MainWindow:
     def launch_sub_window(self, title):
         subWindow = tk.Toplevel(self.window, class_="zerotier-gui")
         subWindow.title(title)
+        subWindow.configure(bg=BACKGROUND)
         subWindow.resizable(width=False, height=False)
 
         return subWindow
@@ -356,15 +1098,17 @@ class MainWindow:
         entry = tk.Entry(
             frame,
             relief=tk.FLAT,
-            bg=BACKGROUND,
+            bg=COLORS["surface_alt"],
             highlightthickness=0,
-            highlightcolor=BACKGROUND,
+            highlightcolor=COLORS["accent"],
             fg=FOREGROUND,
-            selectforeground=FOREGROUND,
+            selectforeground=COLORS["surface"],
+            selectbackground=COLORS["accent"],
             selectborderwidth=0,
             justify=justify,
             font=font,
             bd=0,
+            insertbackground=FOREGROUND,
         )
         entry.insert(0, text)
         entry.config(state="readonly", width=len(text))
@@ -376,24 +1120,29 @@ class MainWindow:
         self,
         frame,
         text="",
-        bg=BUTTON_BACKGROUND,
-        fg=FOREGROUND,
+        bg=None,
+        fg=None,
         justify="left",
-        activebackground=BUTTON_ACTIVE_BACKGROUND,
+        activebackground=None,
         command="",
-        activeforeground=FOREGROUND,
+        activeforeground=None,
     ):
-        button = tk.Button(
+        bg = bg or BUTTON_BACKGROUND
+        fg = fg or "#ffffff"
+        activebackground = activebackground or BUTTON_ACTIVE_BACKGROUND
+        activeforeground = activeforeground or fg
+        return RoundedButton(
             frame,
             text=text,
+            command=command,
             bg=bg,
             fg=fg,
-            justify=justify,
-            activebackground=activebackground,
-            activeforeground=activeforeground,
-            command=command,
+            hover_bg=activebackground,
+            font=("TkDefaultFont", 9, "bold"),
+            padx=13,
+            pady=8,
+            radius=9,
         )
-        return button
 
     def add_network_to_history(self, network_id):
         network_name = self.get_network_name_by_id(network_id)
@@ -641,7 +1390,7 @@ class MainWindow:
         titleLabel = tk.Label(
             topFrame,
             text="ZeroTier GUI",
-            font=70,
+            font=("TkDefaultFont", 18, "bold"),
             bg=BACKGROUND,
             fg=FOREGROUND,
         )
@@ -661,7 +1410,7 @@ class MainWindow:
         ztGuiVersionLabel = tk.Label(
             middleFrame,
             font="Monospace",
-            text="{:25s}{}".format("ZeroTier GUI Version:", "1.4.0"),
+            text="{:25s}{}".format("ZeroTier GUI Version:", "1.4.1"),
             bg=BACKGROUND,
             fg=FOREGROUND,
         )
@@ -783,7 +1532,7 @@ class MainWindow:
         # widgets
         peerIdLabel = tk.Label(
             topFrame,
-            font=40,
+            font=("TkDefaultFont", 13, "bold"),
             bg=BACKGROUND,
             fg=FOREGROUND,
             text=f'Seeing paths for peer with ID "{str(peerId)}"',
@@ -966,7 +1715,7 @@ class MainWindow:
         titleLabel = tk.Label(
             topFrame,
             text="Network Info",
-            font=70,
+            font=("TkDefaultFont", 18, "bold"),
             bg=BACKGROUND,
             fg=FOREGROUND,
         )
@@ -1193,23 +1942,46 @@ class TreeView(ttk.Treeview):
 
     def configure_style(self):
         self.style = ttk.Style()
-        self.style.configure("Treeview.Heading", font=("Monospace", 11))
-        self.style.configure("Treeview", font=("Monospace", 11))
+        self.style.configure(
+            "Treeview.Heading",
+            font=("TkDefaultFont", 9, "bold"),
+            background=COLORS["surface_alt"],
+            foreground=COLORS["muted"],
+            padding=(12, 11),
+            relief="flat",
+        )
+        self.style.configure(
+            "Treeview",
+            font=("TkDefaultFont", 10),
+            background=COLORS["surface"],
+            fieldbackground=COLORS["surface"],
+            foreground=FOREGROUND,
+            rowheight=42,
+            borderwidth=0,
+            relief="flat",
+            lightcolor=COLORS["surface"],
+            darkcolor=COLORS["surface"],
+        )
         self.style.layout(
             "Treeview", [("Treeview.treearea", {"sticky": "nswe"})]
         )
-        self.tag_configure("odd", background="#fcfcfc")
-        self.tag_configure("even", background="#eeeeee")
-        self.tag_configure("disabled", background="#d14444")
+        self.style.map(
+            "Treeview",
+            background=[("selected", COLORS["selection"])],
+            foreground=[("selected", FOREGROUND)],
+        )
+        self.tag_configure("odd", background=COLORS["surface"])
+        self.tag_configure("even", background=COLORS["row_alt"])
+        self.tag_configure("disabled", foreground=COLORS["danger"])
 
     def insert(self, values, disabled=False, **kwargs):
         item_count = len(self.get_children())
         tag = "even" if item_count % 2 == 0 else "odd"
         if disabled:
             tag = "disabled"
-        super().insert(
-            "", tk.END, iid=item_count, values=values, tags=tag, **kwargs
-        )
+        item = str(item_count)
+        super().insert("", tk.END, iid=item, values=values, tags=tag, **kwargs)
+        return item
 
 
 def manage_service(action):
@@ -1295,6 +2067,11 @@ def ensure_zerotier_group():
     """
     if getuid() == 0:
         return
+    # The AppImage executable lives on a temporary FUSE mount. Re-executing
+    # that path through sg can fail with EACCES; its zerotier-cli wrapper
+    # switches groups on the host instead.
+    if getattr(sys, "frozen", False):
+        return
     if environ.get("ZEROTIER_GUI_REGROUPED") == "1":
         return
     try:
@@ -1328,6 +2105,8 @@ if __name__ == "__main__":
     for sbin in ("/usr/sbin", "/sbin"):
         if sbin not in environ.get("PATH", "").split(":"):
             environ["PATH"] = sbin + ":" + environ.get("PATH", "")
+
+    set_theme(detect_system_theme())
 
     # join the zerotier-one group if needed (without requiring re-login)
     ensure_zerotier_group()
