@@ -2,7 +2,7 @@
 
 # This script will create a deb package for ZeroTier-GUI
 
-packageVersion=$(printf "2.0.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
+packageVersion=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/zerotier_gui/__init__.py').read()).group(1))")
 
 # Clean previous deb staging (keep other packaging helpers)
 
