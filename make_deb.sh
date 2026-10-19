@@ -2,7 +2,7 @@
 
 # This script will create a deb package for ZeroTier-GUI
 
-packageVersion=$(printf "1.4.1.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
+packageVersion=$(printf "2.0.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
 
 # Clean previous deb staging (keep other packaging helpers)
 
@@ -16,6 +16,7 @@ mkdir -pv packaging/usr/share/pixmaps
 mkdir -pv packaging/usr/share/applications
 mkdir -pv packaging/usr/share/doc/ZeroTier-GUI
 mkdir -pv packaging/usr/bin
+mkdir -pv packaging/usr/lib/python3/dist-packages
 
 
 # Copy files to corresponding directories
@@ -25,6 +26,7 @@ cp -vf img/zerotier-gui.png packaging/usr/share/pixmaps
 cp -vf zerotier-gui.desktop packaging/usr/share/applications
 cp -vf README.md packaging/usr/share/doc/ZeroTier-GUI
 cp -vf src/zerotier-gui packaging/usr/bin
+cp -R src/zerotier_gui packaging/usr/lib/python3/dist-packages/
 
 
 # Create control file
@@ -33,8 +35,8 @@ echo "Package: zerotier-gui
 Version: ${packageVersion}
 Architecture: all
 Maintainer: tralph3
-Depends: python3-tk, polkitd | policykit-1, python3 (>=3.6)
-Recommends: zerotier-one, systemd
+Depends: python3 (>=3.11), python3-pyside6.qtquick, python3-pyside6.qtqml, python3-pyside6.qtwidgets, python3-pyside6.qtnetwork, qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-window, iproute2, polkitd | policykit-1
+Recommends: zerotier-one, systemd, python3-pyside6.qtdbus
 Priority: optional
 Homepage: https://github.com/tralph3/ZeroTier-GUI
 Description: A Linux front-end for ZeroTier" > packaging/DEBIAN/control

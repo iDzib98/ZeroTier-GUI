@@ -16,6 +16,26 @@ dashboard, with rounded cards and network status chips.
 ### Manage Peers
 <img src="img/managepeers.png " width="1000">
 
+### System tray
+
+The app keeps a system tray icon so you can manage ZeroTier without opening
+the full window. The menu shows the node address, the joined networks (with
+their addresses, options, interface toggle and leave action), quick actions
+(join, peers, about), a **Start at login** toggle and **Quit**.
+
+Closing the window hides it in the tray instead of quitting. The first time
+you close the window a dialog asks whether to keep it running, with a
+**Don't ask again** option. You can change this later with the **Keep running
+in tray** item in the tray menu. Only **Quit** stops the application.
+
+To start minimized at login, enable **Start at login**: it writes an XDG
+autostart entry (`~/.config/autostart/zerotier-gui.desktop`) that launches the
+app with `--hidden`, so only the tray icon appears. You can also pass
+`--hidden` manually.
+
+> On GNOME/Wayland the tray icon may require the *AppIndicator* extension.
+> Single-instance means launching the app again reveals the running window.
+
 # Installation
 
 You can download the software from the [AUR](https://aur.archlinux.org/packages/zerotier-gui-git/).
@@ -35,14 +55,14 @@ You may need to mark it as executable first:
 The script will generate a `ZeroTier-GUI.deb` package in the root directory. Simply install it with `sudo apt install ./ZeroTier-GUI.deb`.
 
 The package depends on `polkitd | policykit-1` (modern Debian/Ubuntu/Deepin
-distributions ship `polkitd`, older ones `policykit-1`) and `python3-tk`.
-`zerotier-one` is only a recommendation, so the package stays installable on
-systems that use ZeroTier's own repository.
+distributions ship `polkitd`, older ones `policykit-1`) and the PySide6/Qt
+Quick modules. `zerotier-one` is only a recommendation, so the package stays
+installable on systems that use ZeroTier's own repository.
 
 ## AppImage
 
-Builds a self-contained AppImage (Python and Tcl/Tk are bundled, so nothing
-extra needs to be installed). Docker is used for a reproducible build.
+Builds a self-contained AppImage with Python, PySide6, Qt Quick and the QML
+interface bundled. Docker is used for a reproducible build.
 
     ./build-appimage.sh
 
@@ -62,9 +82,10 @@ Then install and run it with:
     flatpak install --user ./ZeroTier-GUI.flatpak
     flatpak run io.github.tralph3.ZeroTierGUI
 
-The Flatpak runs the GUI sandboxed, but forwards `zerotier-cli`, `systemctl`
-and `pkexec` to the host through `flatpak-spawn`, so it manages the same
-`zerotier-one` service as a native install.
+The Flatpak uses the Freedesktop runtime with a pinned PySide6 Essentials
+wheel. The GUI runs sandboxed, while `zerotier-cli`, `systemctl`, `ip` and
+`pkexec` are forwarded to the host through `flatpak-spawn` to manage the host's
+`zerotier-one` service.
 
 # ZeroTier access
 
@@ -109,4 +130,8 @@ docker rm -f zero-tier-platforms-build
 
 # Dependencies
 
-None of the packages contains the back-end, zerotier-one. Arch has it in the `community` repo. For Ubuntu based distributions, you'll need to install it manually [from their website](https://www.zerotier.com/download/). On top of that, you'll need python3.6 or greater, and the tkinter module. This however should be handled by the packaging software. Service management depends on SystemD. You will **not** be able to enable or disable the ZeroTier service without it.
+None of the packages contains the ZeroTier back-end, `zerotier-one`. Arch has
+it in the `community` repo. For Ubuntu/Debian based distributions, install it
+from [the ZeroTier website](https://www.zerotier.com/download/). The Debian
+package installs the PySide6 and Qt Quick dependencies; AppImage and Flatpak
+include their GUI runtimes. Service management requires systemd.

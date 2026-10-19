@@ -13,3 +13,5 @@ dist/
 
 __pycache__/
 *.pyc
+
+squashfs-root/

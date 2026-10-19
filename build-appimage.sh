@@ -3,8 +3,8 @@
 # Build a self-contained AppImage for ZeroTier-GUI.
 #
 # Uses Docker so the build is reproducible and independent of the host
-# distribution. The resulting AppImage bundles Python and Tcl/Tk via
-# PyInstaller, so it runs on any x86_64 glibc-based distribution
+# distribution. The resulting AppImage bundles Python, PySide6 and Qt Quick
+# via PyInstaller, so it runs on any x86_64 glibc-based distribution
 # (Debian, Deepin, Ubuntu, Fedora, Arch, ...) without extra dependencies.
 
 set -e

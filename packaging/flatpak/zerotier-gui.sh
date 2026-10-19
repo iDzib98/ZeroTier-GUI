@@ -1,17 +1,13 @@
 #!/bin/sh
-# Flatpak launcher for ZeroTier-GUI.
-#
-# The application source is installed under /app/share/zerotier-gui and is run
-# with the Python interpreter shipped by the freedesktop runtime. The tkinter
-# module (missing from the runtime) is built separately and installed into
-# /app/lib/pythonX.Y/site-packages.
+# Flatpak launcher for the PySide6/QML application.
 
 PYMAJMIN="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 
-export PYTHONPATH="/app/lib/python${PYMAJMIN}/site-packages:${PYTHONPATH}"
+export PYTHONPATH="/app/lib/python${PYMAJMIN}/site-packages:${PYTHONPATH:-}"
 
 # /app/bin must come first so the host-command wrappers (zerotier-cli,
 # systemctl, pkexec) shadow anything else.
-export PATH="/app/bin:/usr/sbin:/sbin:${PATH}"
+export PATH="/app/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export QT_QUICK_CONTROLS_STYLE="Basic"
 
-exec python3 /app/share/zerotier-gui/zerotier-gui "$@"
+exec python3 -m zerotier_gui.app "$@"

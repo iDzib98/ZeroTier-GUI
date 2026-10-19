@@ -2,15 +2,13 @@ FROM debian:bookworm-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Build dependencies. python3-tk provides the Tcl/Tk runtime that PyInstaller
-# bundles into the resulting executable, so the AppImage does not need Python
-# installed on the target system.
+# Build dependencies for the PySide6/QML application and its self-contained
+# PyInstaller bundle.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         python3 \
         python3-venv \
         python3-pip \
-        python3-tk \
         libpython3-dev \
         binutils \
         wget \
@@ -20,11 +18,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/pyinstaller \
-    && /opt/pyinstaller/bin/pip install --no-cache-dir --upgrade pip pyinstaller
+    && /opt/pyinstaller/bin/pip install --no-cache-dir --upgrade pip \
+        pyinstaller PySide6_Essentials==6.8.2.1
 
 WORKDIR /build
 
 COPY src/zerotier-gui /build/zerotier-gui
+COPY src/zerotier_gui /build/zerotier_gui
 COPY img/zerotier-gui.png /build/zerotier-gui.png
 COPY zerotier-gui.desktop /build/zerotier-gui.desktop
 COPY packaging/appimage/AppRun /build/AppRun
@@ -34,6 +34,9 @@ RUN /opt/pyinstaller/bin/pyinstaller \
         --onefile \
         --windowed \
         --name zerotier-gui \
+        --collect-all PySide6 \
+        --add-data /build/zerotier_gui/ui/qml:zerotier_gui/ui/qml \
+        --add-data /build/zerotier_gui/assets:zerotier_gui/assets \
         --distpath /build/dist \
         --workpath /build/pyinstaller-build \
         --specpath /build/pyinstaller-build \
