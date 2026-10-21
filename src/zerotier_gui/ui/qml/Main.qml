@@ -433,18 +433,19 @@ ApplicationWindow {
         }
     }
 
-    JoinNetworkDialog { id: joinDialog; backend: window.controller }
+    JoinNetworkDialog { id: joinDialog; objectName: "joinDialog"; backend: window.controller }
     PeersDialog {
         id: peersDialog
+        objectName: "peersDialog"
         backend: window.controller
         onShowPaths: {
             backend.showPeerPaths(peerId)
             pathsDialog.open()
         }
     }
-    PeerPathsDialog { id: pathsDialog; backend: window.controller }
-    NetworkInfoDialog { id: infoDialog; backend: window.controller }
-    AboutDialog { id: aboutDialog; backend: window.controller }
+    PeerPathsDialog { id: pathsDialog; objectName: "pathsDialog"; backend: window.controller }
+    NetworkInfoDialog { id: infoDialog; objectName: "infoDialog"; backend: window.controller }
+    AboutDialog { id: aboutDialog; objectName: "aboutDialog"; backend: window.controller }
 
     Dialog {
         id: leaveDialog

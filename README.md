@@ -10,13 +10,15 @@ launch and uses a responsive layout inspired by the current ZeroTier Central
 dashboard, with rounded cards and network status chips.
 
 ### Manage Networks
-<img src="img/managenetworks1.png " width="1000">
-<img src="img/managenetworks2.png " width="1000">
+<img src="img/managenetworks1.png" width="1000">
+
+<img src="img/managenetworks2.png" width="580">
 
 ### Manage Peers
-<img src="img/managepeers.png " width="1000">
+<img src="img/managepeers.png" width="820">
 
 ### System tray
+<img src="img/system-tray.png" width="200">
 
 The app keeps a system tray icon so you can manage ZeroTier without opening
 the full window. The menu shows the node address, the joined networks (with
@@ -37,6 +39,8 @@ app with `--hidden`, so only the tray icon appears. You can also pass
 > Single-instance means launching the app again reveals the running window.
 
 ### Installing ZeroTier from the app
+
+<img src="img/zerotier-install.png" width="1000">
 
 If ZeroTier is not detected on the system, the window shows a banner with an
 **Install ZeroTier** button. It downloads and runs the official installer
@@ -138,7 +142,9 @@ docker rm -f zero-tier-platforms-build
 
 # Dependencies
 
-None of the packages contains the ZeroTier back-end, `zerotier-one`. Arch has
+None of the packages contains the ZeroTier back-end, `zerotier-one`. If it is
+missing, the application offers to install it with the official installer (see
+*Installing ZeroTier from the app* above). Arch has
 it in the `community` repo. For Ubuntu/Debian based distributions, install it
 from [the ZeroTier website](https://www.zerotier.com/download/). The Debian
 package installs the PySide6 and Qt Quick dependencies; AppImage and Flatpak
