@@ -92,8 +92,70 @@ ApplicationWindow {
                         text: backend.serviceRunning ? "Stop" : "Start"
                         compact: true
                         colors: window.colors
+                        enabled: backend.zeroTierInstalled
                         onClicked: backend.toggleService()
                     }
+                }
+            }
+        }
+
+        Rectangle {
+            id: installBanner
+            objectName: "installBanner"
+            visible: !backend.zeroTierInstalled
+            Layout.fillWidth: true
+            implicitHeight: installBannerLayout.implicitHeight + 24
+            radius: 12
+            color: window.colors.dangerSoft
+            border.color: window.colors.danger
+            border.width: 1
+
+            RowLayout {
+                id: installBannerLayout
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 12
+                Rectangle {
+                    width: 34
+                    height: 34
+                    radius: 9
+                    color: window.colors.danger
+                    Text {
+                        anchors.centerIn: parent
+                        text: "!"
+                        color: "#ffffff"
+                        font.bold: true
+                        font.pixelSize: 18
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        text: backend.installing ? "Installing ZeroTier…" : "ZeroTier is not installed"
+                        color: window.colors.text
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 14
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: "Install the ZeroTier service to join and manage networks."
+                        color: window.colors.muted
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                ActionButton {
+                    text: "Installation guide"
+                    colors: window.colors
+                    onClicked: Qt.openUrlExternally(backend.downloadUrl)
+                }
+                ActionButton {
+                    text: backend.installing ? "Installing…" : "Install ZeroTier"
+                    primary: true
+                    colors: window.colors
+                    enabled: !backend.installing
+                    onClicked: installDialog.open()
                 }
             }
         }
@@ -105,6 +167,7 @@ ApplicationWindow {
                 text: "＋  Join network"
                 primary: true
                 colors: window.colors
+                enabled: backend.zeroTierInstalled
                 onClicked: joinDialog.open()
             }
             ActionButton {
@@ -306,7 +369,9 @@ ApplicationWindow {
                     Label {
                         anchors.centerIn: parent
                         visible: networkList.count === 0
-                        text: networkSearch.text.length ? "No networks match your search." : "No joined networks yet. Join a network to get started."
+                        text: networkSearch.text.length ? "No networks match your search."
+                              : (backend.zeroTierInstalled ? "No joined networks yet. Join a network to get started."
+                                                           : "ZeroTier is not installed on this computer.")
                         color: window.colors.muted
                         font.pixelSize: 14
                     }
@@ -539,6 +604,55 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: installDialog
+        objectName: "installDialog"
+        property var colors: window.colors
+        modal: true
+        title: "Install ZeroTier"
+        width: 460
+        padding: 22
+        anchors.centerIn: Overlay.overlay
+        background: Rectangle { radius: 16; color: installDialog.colors.surface; border.color: installDialog.colors.border }
+        header: DialogHeader {
+            colors: installDialog.colors
+            title: "Install ZeroTier"
+            subtitle: "Download and run the official installer as administrator?"
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: installDialog.colors.text
+                font.pixelSize: 13
+                text: "This runs the official script from install.zerotier.com as root using your system's authentication prompt. It configures the ZeroTier repository and enables the service."
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: installDialog.colors.muted
+                font.pixelSize: 11
+                text: "An internet connection is required."
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                ActionButton { text: "Cancel"; colors: installDialog.colors; onClicked: installDialog.close() }
+                ActionButton {
+                    text: "Install"
+                    primary: true
+                    colors: installDialog.colors
+                    onClicked: {
+                        installDialog.close()
+                        backend.installZeroTier()
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: backend
         function onNotificationRequested(title, message) {
@@ -558,5 +672,6 @@ ApplicationWindow {
         function onJoinDialogRequested() { joinDialog.open() }
         function onPeersDialogRequested() { peersDialog.open() }
         function onAboutDialogRequested() { aboutDialog.open() }
+        function onInstallDialogRequested() { installDialog.open() }
     }
 }

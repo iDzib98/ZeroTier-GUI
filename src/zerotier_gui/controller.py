@@ -1,12 +1,12 @@
 """Qt/QML bridge. Exposes application state and actions without UI details."""
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QProcess, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 
 from . import __version__
 from .history import NetworkHistory
 from .preferences import Preferences
-from .service import ZeroTierError, ZeroTierService
+from .service import DOWNLOAD_URL, ZeroTierError, ZeroTierService
 from .theme import palette_for
 
 
@@ -27,6 +27,9 @@ class MainController(QObject):
     joinDialogRequested = Signal()
     peersDialogRequested = Signal()
     aboutDialogRequested = Signal()
+    installDialogRequested = Signal()
+    installedChanged = Signal()
+    installingChanged = Signal()
 
     def __init__(self, theme_name="light", start_hidden=False, parent=None):
         super().__init__(parent)
@@ -45,6 +48,9 @@ class MainController(QObject):
         self._selected_peer_id = ""
         self._search_text = ""
         self._about = {}
+        self._installed = self.service.is_installed()
+        self._installing = False
+        self._install_process = None
 
     @Property("QVariantList", notify=networksChanged)
     def networks(self):
@@ -126,6 +132,18 @@ class MainController(QObject):
     def keepInTray(self):
         return bool(self.preferences.get("keep_in_tray", True))
 
+    @Property(bool, notify=installedChanged)
+    def zeroTierInstalled(self):
+        return self._installed
+
+    @Property(bool, notify=installingChanged)
+    def installing(self):
+        return self._installing
+
+    @Property(str, constant=True)
+    def downloadUrl(self):
+        return DOWNLOAD_URL
+
     @Slot(str)
     def setSearchText(self, text):
         self._search_text = text
@@ -138,6 +156,13 @@ class MainController(QObject):
 
     @Slot(str)
     def refreshNetworks(self):
+        if not self._installed:
+            self._networks = []
+            self._selected_network_id = ""
+            self.networksChanged.emit()
+            self.selectionChanged.emit()
+            self.historyChanged.emit()
+            return
         try:
             self._networks = self.service.networks()
             joined = {network["id"]: network["name"] for network in self._networks}
@@ -162,12 +187,69 @@ class MainController(QObject):
 
     @Slot()
     def refreshAll(self):
+        self._update_installed()
         self.refreshNetworks()
         self.refreshService()
         self.refreshAbout()
 
+    def _update_installed(self):
+        installed = self.service.is_installed()
+        if installed != self._installed:
+            self._installed = installed
+            self.installedChanged.emit()
+
+    @Slot()
+    def installZeroTier(self):
+        if self._installing or self._installed:
+            return
+        command = self.service.install_command()
+        process = QProcess(self)
+        process.setProgram(command[0])
+        process.setArguments(command[1:])
+        process.finished.connect(self._on_install_finished)
+        process.errorOccurred.connect(self._on_install_error)
+        self._install_process = process
+        self._installing = True
+        self.installingChanged.emit()
+        process.start()
+
+    def _on_install_finished(self, exit_code, _exit_status):
+        process = self._install_process
+        stdout = process.readAllStandardOutput().data().decode(errors="replace").strip() if process else ""
+        stderr = process.readAllStandardError().data().decode(errors="replace").strip() if process else ""
+        self._installing = False
+        self._install_process = None
+        self.installingChanged.emit()
+        self._update_installed()
+        if exit_code == 0 and self._installed:
+            self.notificationRequested.emit(
+                "ZeroTier installed", "ZeroTier was installed successfully."
+            )
+            self.refreshAll()
+        else:
+            self.notificationRequested.emit(
+                "Could not install ZeroTier",
+                stderr or stdout or "The installer did not complete.",
+            )
+
+    def _on_install_error(self, _error):
+        process = self.sender()
+        message = process.errorString() if process is not None else "Installation failed."
+        self._installing = False
+        self._install_process = None
+        self.installingChanged.emit()
+        self.notificationRequested.emit("Could not install ZeroTier", message)
+
+    @Slot()
+    def requestInstallDialog(self):
+        self.installDialogRequested.emit()
+
     @Slot()
     def refreshService(self):
+        if not self._installed:
+            self._service_status = "not installed"
+            self.serviceChanged.emit()
+            return
         try:
             self._service_status = self.service.service_status()
         except ZeroTierError as error:
@@ -260,6 +342,10 @@ class MainController(QObject):
 
     @Slot()
     def refreshAbout(self):
+        if not self._installed:
+            self._about = {}
+            self.peersChanged.emit()
+            return
         try:
             self._about = self.service.status()
             self.peersChanged.emit()

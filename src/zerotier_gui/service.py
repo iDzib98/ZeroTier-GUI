@@ -12,6 +12,21 @@ import sys
 
 ZERO_TIER_GROUP = "zerotier-one"
 
+CLI_CANDIDATES = (
+    "/usr/sbin/zerotier-cli",
+    "/sbin/zerotier-cli",
+    "/usr/bin/zerotier-cli",
+    "/bin/zerotier-cli",
+)
+
+ONE_CANDIDATES = (
+    "/usr/sbin/zerotier-one",
+    "/usr/bin/zerotier-one",
+)
+
+INSTALL_URL = "https://install.zerotier.com"
+DOWNLOAD_URL = "https://www.zerotier.com/download/"
+
 
 class ZeroTierError(RuntimeError):
     """An operation against zerotier-one or the host failed."""
@@ -38,15 +53,37 @@ class ZeroTierService:
 
     @staticmethod
     def _find_cli():
-        for candidate in (
-            "/usr/sbin/zerotier-cli",
-            "/sbin/zerotier-cli",
-            "/usr/bin/zerotier-cli",
-            "/bin/zerotier-cli",
-        ):
+        for candidate in CLI_CANDIDATES:
             if os.path.isfile(candidate):
                 return candidate
         return shutil.which("zerotier-cli") or "zerotier-cli"
+
+    def is_installed(self):
+        if any(os.path.isfile(path) for path in CLI_CANDIDATES):
+            return True
+        if any(os.path.isfile(path) for path in ONE_CANDIDATES):
+            return True
+        if shutil.which("zerotier-cli") or shutil.which("zerotier-one"):
+            return True
+        return os.path.isdir("/var/lib/zerotier-one")
+
+    @staticmethod
+    def install_command():
+        # The official installer configures the package repository and enables
+        # the zerotier-one service. Run it as root through polkit; the Flatpak
+        # and AppImage launchers forward pkexec to the host system.
+        script = (
+            "set -e\n"
+            "if command -v curl >/dev/null 2>&1; then\n"
+            f"  curl -fsSL {INSTALL_URL} | bash\n"
+            "elif command -v wget >/dev/null 2>&1; then\n"
+            f"  wget -qO- {INSTALL_URL} | bash\n"
+            "else\n"
+            '  echo "curl or wget is required to install ZeroTier." >&2\n'
+            "  exit 1\n"
+            "fi\n"
+        )
+        return ["pkexec", "/bin/sh", "-c", script]
 
     @staticmethod
     def _is_member_of_group():

@@ -36,6 +36,14 @@ app with `--hidden`, so only the tray icon appears. You can also pass
 > On GNOME/Wayland the tray icon may require the *AppIndicator* extension.
 > Single-instance means launching the app again reveals the running window.
 
+### Installing ZeroTier from the app
+
+If ZeroTier is not detected on the system, the window shows a banner with an
+**Install ZeroTier** button. It downloads and runs the official installer
+(`https://install.zerotier.com`) as administrator through the system's
+authentication prompt, enables the service and refreshes the dashboard. The
+**Installation guide** button opens the download page instead.
+
 # Installation
 
 You can download the software from the [AUR](https://aur.archlinux.org/packages/zerotier-gui-git/).

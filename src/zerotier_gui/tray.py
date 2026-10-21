@@ -52,6 +52,7 @@ class TrayManager(QObject):
 
         controller.networksChanged.connect(self.rebuild)
         controller.serviceChanged.connect(self.rebuild)
+        controller.installedChanged.connect(self.rebuild)
         controller.peersChanged.connect(self.rebuild)
         controller.appearanceChanged.connect(self.rebuild)
         controller.notificationRequested.connect(self._on_notification)
@@ -103,6 +104,10 @@ class TrayManager(QObject):
 
         open_action = menu.addAction("Open ZeroTier GUI")
         open_action.triggered.connect(self.show_window)
+
+        if not self.controller.zeroTierInstalled:
+            install = menu.addAction("Install ZeroTier…")
+            install.triggered.connect(self._install)
 
         join = menu.addAction("Join network…")
         join.triggered.connect(self._join_network)
@@ -178,6 +183,10 @@ class TrayManager(QObject):
         )
 
     # -- menu actions ---------------------------------------------------
+    def _install(self):
+        self.show_window()
+        self.controller.requestInstallDialog()
+
     def _join_network(self):
         self.show_window()
         self.controller.openJoinDialog()
